@@ -1,0 +1,13 @@
+.env
+credentials/
+metadata.json
+dropped_emails.jsonl
+comparison_*.md
+comparison_*.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+*.egg-info/
+.pytest_cache/

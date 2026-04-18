@@ -1,0 +1,31 @@
+{
+    "primary_categories": {
+      "finance": "Banking, credit cards, transactions, statements (Chase, AmEx, HDFC, SBI, etc.)",
+      "receipts": "Payment confirmations, invoices, proof of purchase",
+      "orders_shipping": "Order confirmations, shipping updates, delivery tracking",
+      "travel": "Flight, hotel, rental bookings and updates",
+      "job": "Job applications, interviews, recruiter outreach, offers",
+      "social": "Social media notifications (Facebook, Instagram, LinkedIn, etc.)",
+      "promotions": "Marketing emails, discounts, ads, sales campaigns",
+      "newsletters": "Subscribed content like blogs, Substack, news digests",
+      "security": "OTP codes, password resets, login alerts, verification emails",
+      "subscriptions": "Service-related updates (Netflix, SaaS tools, billing cycles)",
+      "personal": "Direct human-to-human communication (friends, family, colleagues)",
+      "government": "Official communications (tax, immigration, legal notices)",
+      "health": "Medical appointments, lab results, insurance communication",
+      "education": "School, university, courses, learning platforms",
+      "scam": "Phishing, fraud attempts, suspicious emails",
+      "adult": "Explicit or NSFW content",
+      "other": "Anything that doesn't fit into the above categories"
+    },
+    "tags": {
+      "important": "High priority or critical emails",
+      "time_sensitive": "Requires attention soon (deadlines, expiring links, events)",
+      "requires_action": "User needs to take action (reply, pay, confirm, etc.)",
+      "high_risk": "Potentially harmful (phishing, scams, suspicious links)",
+      "financial": "Involves money (transactions, billing, payments)",
+      "verification": "Authentication-related (OTP, account verification)",
+      "automated": "System-generated email",
+      "human": "Sent by a real person (non-automated)"
+    }
+  }
