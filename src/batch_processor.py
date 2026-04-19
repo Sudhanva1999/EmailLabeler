@@ -58,82 +58,100 @@ class BatchProcessor:
         try:
             if apply:
                 self.provider.apply_labels(email.id, classification.category, classification.tags)
+                self._cache_classification(email, classification)
             return ProcessResult(email=email, classification=classification)
         except Exception as exc:
             return ProcessResult(email=email, classification=classification, error=f"label apply failed: {exc}")
+
+    def _cache_classification(self, email: EmailMessage, classification: Classification) -> None:
+        cache = getattr(self.metadata, "cache", None)
+        if cache is None:
+            return
+        cache.mark_processed(
+            email_id=email.id,
+            provider=self.provider.name,
+            account=self.provider.account,
+            category=classification.category,
+            tags=list(classification.tags),
+            confidence=classification.confidence,
+            subject=email.subject,
+            sender=email.sender,
+            email_date=email.date,
+            run_id=None,
+        )
 
     def run_test(
         self,
         limit: int = 10,
         on_progress: ProgressCallback | None = None,
-    ) -> int:
+    ) -> list[ProcessResult]:
         """Dry run: fetch the latest `limit` emails, classify them, but do not
         apply labels or update metadata. Used to preview LLM behavior."""
         until = datetime.now(timezone.utc)
-        count = 0
+        results: list[ProcessResult] = []
         for email in itertools.islice(
-            self.provider.fetch_emails(since=None, until=until), limit
+            self.provider.fetch_emails(since=None, until=until, order="desc"), limit
         ):
             result = self._classify_and_label(email, apply=False)
-            count += 1
+            results.append(result)
             if on_progress:
                 on_progress(result)
-        return count
+        return results
 
-    def run_default(self, on_progress: ProgressCallback | None = None) -> int:
+    def run_default(self, on_progress: ProgressCallback | None = None) -> list[ProcessResult]:
         since = self.metadata.last_run_at
         until = datetime.now(timezone.utc)
-        count = 0
+        results: list[ProcessResult] = []
         for email in self.provider.fetch_emails(since=since, until=until):
             result = self._classify_and_label(email)
-            count += 1
+            results.append(result)
             if on_progress:
                 on_progress(result)
         self.metadata.record_run(
             provider=self.provider.name,
             account=self.provider.account,
-            emails_processed=count,
+            emails_processed=len(results),
             date_from=since,
             date_to=until,
             mode="default",
         )
-        return count
+        return results
 
     def run_range(
         self,
         date_from: datetime,
         date_to: datetime,
         on_progress: ProgressCallback | None = None,
-    ) -> int:
-        count = 0
+    ) -> list[ProcessResult]:
+        results: list[ProcessResult] = []
         for email in self.provider.fetch_emails(since=date_from, until=date_to):
             result = self._classify_and_label(email)
-            count += 1
+            results.append(result)
             if on_progress:
                 on_progress(result)
         self.metadata.record_run(
             provider=self.provider.name,
             account=self.provider.account,
-            emails_processed=count,
+            emails_processed=len(results),
             date_from=date_from,
             date_to=date_to,
             mode="range",
         )
-        return count
+        return results
 
     def run_batch(
         self,
         on_progress: ProgressCallback | None = None,
         fresh: bool = False,
         max_batches: int | None = None,
-    ) -> int:
+    ) -> list[ProcessResult]:
         if fresh:
             self.metadata.reset_batch()
         self.metadata.begin_batch(self.provider.name, self.provider.account)
         completed = self.metadata.batch_completed_ids
         until = datetime.now(timezone.utc)
 
-        total = 0
+        results: list[ProcessResult] = []
         batches_run = 0
         chunk_ids: list[str] = []
         chunk_last_date: datetime | None = None
@@ -149,7 +167,7 @@ class BatchProcessor:
             if email.id in completed:
                 continue
             result = self._classify_and_label(email)
-            total += 1
+            results.append(result)
             if on_progress:
                 on_progress(result)
             if result.ok:
@@ -166,9 +184,9 @@ class BatchProcessor:
         self.metadata.record_run(
             provider=self.provider.name,
             account=self.provider.account,
-            emails_processed=total,
+            emails_processed=len(results),
             date_from=None,
             date_to=until,
             mode="batch",
         )
-        return total
+        return results

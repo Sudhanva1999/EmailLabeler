@@ -18,11 +18,16 @@ class OutlookProvider(EmailProvider):
         self._client_id = os.getenv("OUTLOOK_CLIENT_ID", "")
         self._tenant = os.getenv("OUTLOOK_TENANT_ID", "common")
         self._token_file = Path(os.getenv("OUTLOOK_TOKEN_FILE", "credentials/outlook_token.json"))
-        self._label_prefix = os.getenv("LABEL_PREFIX", "AutoSort")
+        self._label_prefix = os.getenv("LABEL_PREFIX", "")
         self._account = ""
         self._access_token: str | None = None
         self._app: msal.PublicClientApplication | None = None
         self._category_cache: set[str] = set()
+
+    def _label_name(self, base: str) -> str:
+        if self._label_prefix:
+            return f"{self._label_prefix}/{base}"
+        return base
 
     @property
     def name(self) -> str:
@@ -79,6 +84,7 @@ class OutlookProvider(EmailProvider):
         self,
         since: datetime | None = None,
         until: datetime | None = None,
+        order: str = "asc",
     ) -> Iterator[EmailMessage]:
         filters: list[str] = []
         if since:
@@ -86,10 +92,11 @@ class OutlookProvider(EmailProvider):
         if until:
             filters.append(f"receivedDateTime lt {until.astimezone(timezone.utc).isoformat().replace('+00:00','Z')}")
 
+        direction = "desc" if order == "desc" else "asc"
         params = {
             "$top": "50",
             "$select": "id,subject,from,bodyPreview,body,receivedDateTime,categories",
-            "$orderby": "receivedDateTime desc",
+            "$orderby": f"receivedDateTime {direction}",
         }
         if filters:
             params["$filter"] = " and ".join(filters)
@@ -125,14 +132,64 @@ class OutlookProvider(EmailProvider):
             raw=item,
         )
 
+    def get_inbox_stats(self) -> dict:
+        assert self._access_token is not None, "Call authenticate() first"
+        inbox = self._get(
+            f"{GRAPH}/me/mailFolders/inbox",
+            params={"$select": "displayName,totalItemCount,unreadItemCount,childFolderCount"},
+        )
+        folders_data = self._get(
+            f"{GRAPH}/me/mailFolders",
+            params={"$top": "50", "$select": "displayName,totalItemCount,unreadItemCount"},
+        )
+        folders = [
+            {
+                "name": f.get("displayName", ""),
+                "total": f.get("totalItemCount", 0),
+                "unread": f.get("unreadItemCount", 0),
+            }
+            for f in folders_data.get("value", [])
+        ]
+        return {
+            "provider": "outlook",
+            "account": self._account,
+            "inbox_total": inbox.get("totalItemCount", 0),
+            "inbox_unread": inbox.get("unreadItemCount", 0),
+            "inbox_child_folders": inbox.get("childFolderCount", 0),
+            "folders": folders,
+            "user_labels": [],
+        }
+
+    def _current_categories(self, email_id: str) -> list[str]:
+        data = self._get(f"{GRAPH}/me/messages/{email_id}", params={"$select": "categories"})
+        return list(data.get("categories") or [])
+
     def apply_labels(self, email_id: str, category: str, tags: list[str]) -> None:
-        names = [f"{self._label_prefix}/{category}"]
-        names.extend(f"{self._label_prefix}/tag/{t}" for t in tags)
-        url = f"{GRAPH}/me/messages/{email_id}"
+        managed = {self._label_name(category), *(self._label_name(t) for t in tags)}
+        existing = self._current_categories(email_id)
+        merged = list(dict.fromkeys([*existing, *managed]))
+        self._patch_categories(email_id, merged)
+
+    def replace_labels(
+        self,
+        email_id: str,
+        old_category: str,
+        old_tags: list[str],
+        new_category: str,
+        new_tags: list[str],
+    ) -> None:
+        old_names = {self._label_name(old_category), *(self._label_name(t) for t in old_tags)}
+        new_names = {self._label_name(new_category), *(self._label_name(t) for t in new_tags)}
+        existing = self._current_categories(email_id)
+        remaining = [c for c in existing if c not in old_names or c in new_names]
+        merged = list(dict.fromkeys([*remaining, *new_names]))
+        self._patch_categories(email_id, merged)
+
+    def _patch_categories(self, email_id: str, categories: list[str]) -> None:
         r = requests.patch(
-            url,
+            f"{GRAPH}/me/messages/{email_id}",
             headers={**self._headers(), "Content-Type": "application/json"},
-            json={"categories": names},
+            json={"categories": categories},
             timeout=60,
         )
         r.raise_for_status()

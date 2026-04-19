@@ -6,7 +6,7 @@ from dotenv import load_dotenv, set_key
 ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = ROOT / ".env"
 CATEGORIES_FILE = ROOT / "categories.json"
-METADATA_FILE = ROOT / "metadata.json"
+KEYWORD_ROUTES_FILE = ROOT / "keyword_routes.json"
 
 ALLOWED_KEYS = {
     "EMAIL_PROVIDER",
@@ -28,9 +28,14 @@ ALLOWED_KEYS = {
     "MAX_CLASSIFY_RETRIES",
     "BODY_CHAR_LIMIT",
     "DROPPED_LOG_FILE",
+    "KEYWORD_ROUTES_FILE",
+    "DB_FILE",
+    "NOTIFY_PROVIDER",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
 }
 
-SECRET_KEYS = {"GEMINI_API_KEY", "OUTLOOK_CLIENT_SECRET", "LOCAL_LLM_API_KEY"}
+SECRET_KEYS = {"GEMINI_API_KEY", "OUTLOOK_CLIENT_SECRET", "LOCAL_LLM_API_KEY", "TELEGRAM_BOT_TOKEN"}
 
 
 def load_env() -> None:

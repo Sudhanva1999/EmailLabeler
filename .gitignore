@@ -1,7 +1,11 @@
 .env
 credentials/
-metadata.json
 dropped_emails.jsonl
+keyword_routes.json
+email_sorter.db
+email_sorter.db-journal
+email_sorter.db-wal
+email_sorter.db-shm
 comparison_*.md
 comparison_*.json
 __pycache__/

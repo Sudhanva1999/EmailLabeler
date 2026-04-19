@@ -1,0 +1,269 @@
+EmailSorter – Implementation Plan
+====================================
+Based on toDo.txt + current codebase state (2026-04-18)
+
+
+ITEM 1: Labels — flat independent labels for all categories and tags
+---------------------------------------------------------------------
+DECISION:
+  Create one flat label per category and one flat label per tag.
+  Apply all matching labels to each email (both Gmail and Outlook support
+  multiple labels/categories per message natively).
+  No hierarchy. No whitelisting of tags. Everything is sortable/filterable.
+
+  Gmail:   up to 16 category labels + 8 tag labels = 24 flat labels total.
+           Each email gets: 1 category label + N tag labels (however many LLM returns).
+           apply_labels() calls messages.modify(addLabelIds=[cat_id, tag1_id, tag2_id, ...])
+
+  Outlook: categories field accepts a list of strings — same flat approach.
+           apply_labels() does PATCH /messages/{id} {"categories": ["finance", "important", ...]}
+
+LABEL NAMING:
+  - Categories: plain lowercase, e.g. "finance", "orders_shipping", "travel"
+    (strip the AutoSort/ prefix entirely — they live at top level)
+  - Tags: plain lowercase, e.g. "important", "time_sensitive", "requires_action"
+  - LABEL_PREFIX env var still works as an optional namespace if user wants grouping,
+    e.g. LABEL_PREFIX="Mail" → "Mail/finance", "Mail/important"
+    Default: empty (no prefix, fully flat)
+
+FILES TO CHANGE:
+  - src/email_providers/gmail.py:
+      _ensure_label(): remove nested path logic, create flat label names
+      apply_labels(): pass list of all label IDs (category + all tags)
+  - src/email_providers/outlook.py:
+      apply_labels(): build list of all category strings (category + all tags)
+  - src/config.py: remove TAG_LABEL_WHITELIST, keep LABEL_PREFIX (default "")
+
+
+ITEM 1b: Post-run interactive label review (--review flag)
+-----------------------------------------------------------
+GOAL:
+  After a labeling run completes, if --review flag is passed, show each
+  processed email's subject + snippet and let the user confirm or override
+  the assigned category/tags before finalizing.
+
+FLOW:
+  emailsorter run --review
+    1. Run proceeds normally — LLM classifies, labels applied.
+    2. After all emails processed, enter review mode in the terminal.
+    3. For each email in the run (displayed one at a time):
+         Subject:  "Your Amazon order has shipped"
+         From:     shipping-confirm@amazon.com
+         Preview:  "Your order #123-456 will arrive by Tuesday..."
+         Assigned: category=orders_shipping  tags=[automated, financial]
+         ──────────────────────────────────────────────────────────────
+         [Enter] Keep  [r] Reassign  [s] Skip remaining  [q] Quit review
+    4. If user presses 'r':
+         Show numbered list of all valid categories from categories.json.
+         User picks a number → new category selected.
+         Show numbered list of all valid tags (multi-select, space to toggle).
+         Confirm → call provider.apply_labels() again with new values.
+         Update DB record if SQLite cache is in place (Item 3).
+    5. If user presses Enter: no change, move to next email.
+    6. 's' skips remaining review without undoing already-kept changes.
+    7. 'q' exits review immediately, no further changes.
+
+IMPLEMENTATION:
+
+  New file: src/reviewer.py
+    class PostRunReviewer:
+      __init__(results: list[ProcessResult], provider: EmailProvider,
+               categorizer: Categorizer):
+        stores the run's ProcessResult list, provider, valid label names
+      run() -> int:  (returns count of reassignments)
+        iterates results, renders each, handles keypress, calls reassign()
+      reassign(result, new_category, new_tags):
+        calls provider.apply_labels(email.id, new_category, new_tags)
+
+  Terminal rendering:
+    Use rich (already a dependency) for colored output:
+      - subject in bold white
+      - sender in dim
+      - snippet/preview truncated to ~200 chars
+      - assigned labels in colored badges (category=cyan, tags=yellow)
+    Input: use Python's built-in readchar or a simple input() prompt
+      (avoid adding new deps — a simple numbered menu works fine)
+
+  Modify: main.py
+    run command gets --review / -R flag (bool, default False)
+    After _build_processor().run_*() returns results list, if --review:
+      PostRunReviewer(results, provider, categorizer).run()
+
+  Modify: src/batch_processor.py
+    run_default(), run_range(), run_batch() currently return int (count).
+    Change return type to list[ProcessResult] so reviewer can iterate them.
+    _print_progress in main.py already collects these — just expose the list.
+
+FILES TO CREATE:
+  - src/reviewer.py (new)
+
+FILES TO CHANGE:
+  - main.py: add --review flag to run command, call PostRunReviewer after run
+  - src/batch_processor.py: return list[ProcessResult] instead of int
+
+
+ITEM 2: Add options to manually route some keywords to certain category
+-----------------------------------------------------------------------
+CURRENT STATE:
+  Every email goes through LLM classification (categorizer.py).
+  No pre-classification short-circuit exists.
+  categories.json only defines taxonomy, not routing rules.
+
+GOAL:
+  Let users define rules like:
+    "if subject or sender contains 'github' → category: developer_tools"
+    "if sender is @paypal.com → category: finance, tags: [financial]"
+  These rules should fire BEFORE the LLM call, saving API cost and latency.
+
+DESIGN:
+
+  New file: keyword_routes.json (in project root, gitignored optional)
+  Structure:
+    [
+      {
+        "name": "GitHub notifications",
+        "match": {
+          "fields": ["sender", "subject"],   // which fields to check
+          "keywords": ["github.com", "noreply@github"],
+          "mode": "any"                      // "any" | "all"
+        },
+        "result": {
+          "category": "social",
+          "tags": ["automated"],
+          "confidence": 1.0
+        }
+      }
+    ]
+
+  New file: src/keyword_router.py
+    class KeywordRouter:
+      __init__(routes_file): loads keyword_routes.json if it exists
+      route(email: EmailContent) -> Classification | None:
+        iterates rules, checks field values, returns Classification on match
+        returns None if no rule matches (falls through to LLM)
+
+  Modify: src/categorizer.py — Categorizer.classify()
+    Before calling llm.classify(), call self._router.route(email)
+    If not None, return that Classification directly (skip LLM)
+
+  Modify: main.py / CLI
+    Add: emailsorter routes list  — show all active rules
+    Add: emailsorter routes add   — interactive prompt to create a rule
+    Add: emailsorter routes remove <name> — remove a rule by name
+
+  Modify: src/ui/screens/settings.py
+    Add a "Keyword Routes" section to TUI settings screen.
+
+  Modify: src/config.py
+    Add KEYWORD_ROUTES_FILE to ALLOWED_KEYS (default: keyword_routes.json)
+
+VALIDATION:
+  Route's category must be in categories.json category_names.
+  Route's tags must be in categories.json tag_names.
+  Validation runs at load time in KeywordRouter.__init__().
+
+FILES TO CREATE:
+  - src/keyword_router.py (new)
+  - keyword_routes.json (new, gitignored)
+
+FILES TO CHANGE:
+  - src/categorizer.py: inject KeywordRouter, call before LLM
+  - main.py: add routes subcommand group
+  - src/config.py: add KEYWORD_ROUTES_FILE
+
+
+ITEM 3: Rethink cache management with SQLite
+--------------------------------------------
+CURRENT STATE:
+  metadata.json tracks:
+    - last_run: timestamp, provider, account, mode, date_range
+    - batch_state.completed_ids: list of all processed email IDs (grows unbounded)
+    - history: last 50 run entries
+  Problems:
+    - completed_ids is loaded fully into memory on every run.
+    - JSON file gets large after batch mode processes thousands of emails.
+    - No indexed lookup — checking if an ID is processed = O(n) list scan.
+    - Atomic write via tempfile is fine but wasteful for appending IDs.
+    - No ability to query history (e.g. "show emails classified as finance").
+    - Classification results are not cached — same email reclassified on reruns.
+
+PROPOSED SCHEMA (email_sorter.db via SQLite):
+
+  Table: runs
+    id INTEGER PRIMARY KEY
+    timestamp TEXT NOT NULL
+    provider TEXT
+    account TEXT
+    emails_processed INTEGER
+    mode TEXT
+    date_from TEXT
+    date_to TEXT
+
+  Table: processed_emails
+    email_id TEXT PRIMARY KEY
+    run_id INTEGER REFERENCES runs(id)
+    provider TEXT
+    account TEXT
+    category TEXT
+    tags TEXT          -- JSON array stored as string
+    confidence REAL
+    classified_at TEXT
+    subject TEXT
+    sender TEXT
+
+  Table: keyword_route_hits
+    email_id TEXT
+    rule_name TEXT
+    classified_at TEXT
+
+  Table: config_state
+    key TEXT PRIMARY KEY
+    value TEXT
+
+  The config_state table replaces the "last_run" and "batch_state" top-level
+  keys in metadata.json for mutable singleton state.
+
+IMPLEMENTATION NOTES (fresh start, no migration):
+  1. Create src/db.py — thin wrapper around sqlite3 with schema creation.
+  2. Create src/cache.py — higher-level cache API:
+       is_processed(email_id) -> bool   (indexed O(1) lookup)
+       mark_processed(email_id, classification, run_id)
+       recent_runs(limit=50) -> list[RunRecord]
+       record_run(...) -> run_id
+       batch_state_dict(), begin_batch, end_batch, reset_batch
+  3. Rewrite src/metadata.py as a thin facade over cache.py so
+     batch_processor.py and the TUI keep working with no behavioural change.
+  4. Delete the old metadata.json. No migration path — start fresh from
+     an empty DB. Users who need their old batch progress will re-run
+     the batch; classifications that are already applied in Gmail/Outlook
+     stay applied.
+
+BENEFITS:
+  - is_processed() becomes an indexed primary key lookup.
+  - History is queryable: "SELECT * FROM processed_emails WHERE category='finance'"
+  - Classification results are cached: reruns can skip LLM for known emails.
+  - Batch state (active, started_at, provider, account) moves to config_state table.
+  - DB file is a single binary artifact, easier to backup than JSON.
+
+FILES TO CREATE:
+  - src/db.py (new)
+  - src/cache.py (new)
+
+FILES TO CHANGE:
+  - src/metadata.py: rewrite as facade over src/cache.py
+  - src/config.py: add DB_FILE to ALLOWED_KEYS, remove METADATA_FILE
+  - .env.example: add DB_FILE=email_sorter.db
+
+
+IMPLEMENTATION ORDER
+--------------------
+Suggested sequence (least risky to most):
+  1. Item 2 (keyword router) — purely additive, no existing code breaks
+  2. Item 1 (flat labels) — touches email providers, testable in isolation
+       no migration needed, labels are currently clean
+  3. Item 1b (--review flag) — additive CLI flag, depends on Item 1 label names
+       batch_processor return type change is the only breaking internal change
+  4. Item 3 (SQLite cache) — requires migration, touches metadata.py internals
+       reviewer.py should update DB records on reassignment once Item 3 lands
+
+Each item can be done on its own branch and merged independently.

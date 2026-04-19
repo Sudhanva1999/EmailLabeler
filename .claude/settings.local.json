@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(python -m py_compile main.py src/batch_processor.py src/categorizer.py src/keyword_router.py src/reviewer.py src/email_providers/gmail.py src/email_providers/outlook.py src/email_providers/base.py src/config.py src/ui/screens/home.py)",
+      "Bash(python -m py_compile main.py src/batch_processor.py src/categorizer.py src/keyword_router.py src/reviewer.py src/email_providers/gmail.py src/email_providers/outlook.py src/email_providers/base.py src/config.py src/ui/screens/home.py src/db.py src/cache.py src/metadata.py migrate_metadata.py)",
+      "Bash(python -m py_compile main.py src/batch_processor.py src/categorizer.py src/keyword_router.py src/reviewer.py src/email_providers/gmail.py src/email_providers/outlook.py src/email_providers/base.py src/config.py src/ui/screens/home.py src/db.py src/cache.py src/metadata.py)",
+      "Bash(rm -f email_sorter.db email_sorter.db-*)",
+      "Bash(python -)",
+      "Bash(setopt NULL_GLOB)",
+      "Bash(python -m py_compile main.py compare.py src/batch_processor.py src/email_providers/gmail.py src/email_providers/outlook.py src/email_providers/base.py)",
+      "WebSearch"
     ]
   }
 }

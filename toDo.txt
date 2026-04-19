@@ -1,5 +1,0 @@
-- add option to cleanup tags, 
-- labels being created are confusing. debate better ways
-- check with outlook 
-- add options to manually route some keywords to certain category. 
-- rethink cache management with sql lite.

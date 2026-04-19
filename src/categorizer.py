@@ -3,9 +3,13 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .llm import Classification, LLMProvider
 from .normalizer import normalize_body, normalize_subject
+
+if TYPE_CHECKING:
+    from .keyword_router import KeywordRouter
 
 
 class ClassificationError(Exception):
@@ -29,6 +33,7 @@ class Categorizer:
         body_char_limit: int | None = None,
         max_retries: int | None = None,
         retry_backoff: float = 0.5,
+        router: "KeywordRouter | None" = None,
     ) -> None:
         self._categories_file = Path(categories_file)
         self._llm = llm
@@ -46,6 +51,7 @@ class Categorizer:
         self._retry_backoff = retry_backoff
         self._categories, self._tags = self._load()
         self._system_block = self._build_system_block()
+        self._router = router
 
     def _load(self) -> tuple[dict[str, str], dict[str, str]]:
         with open(self._categories_file, "r", encoding="utf-8") as fh:
@@ -105,6 +111,12 @@ class Categorizer:
         return prompt
 
     def classify(self, email: EmailContent) -> Classification:
+        if self._router is not None:
+            match = self._router.route(email)
+            if match is not None:
+                classification, _ = match
+                return classification
+
         subject = normalize_subject(email.subject)
         sender = normalize_subject(email.sender)
         body = normalize_body(email.body or email.snippet or "", max_chars=self._body_limit)

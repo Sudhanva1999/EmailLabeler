@@ -1,0 +1,28 @@
+[
+  {
+    "name": "GitHub notifications",
+    "match": {
+      "fields": ["sender"],
+      "keywords": ["notifications@github.com", "noreply@github.com"],
+      "mode": "any"
+    },
+    "result": {
+      "category": "social",
+      "tags": ["automated"],
+      "confidence": 1.0
+    }
+  },
+  {
+    "name": "PayPal",
+    "match": {
+      "fields": ["sender"],
+      "keywords": ["@paypal.com"],
+      "mode": "any"
+    },
+    "result": {
+      "category": "finance",
+      "tags": ["financial", "automated"],
+      "confidence": 1.0
+    }
+  }
+]

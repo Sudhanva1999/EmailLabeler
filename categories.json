@@ -21,11 +21,6 @@
     "tags": {
       "important": "High priority or critical emails",
       "time_sensitive": "Requires attention soon (deadlines, expiring links, events)",
-      "requires_action": "User needs to take action (reply, pay, confirm, etc.)",
-      "high_risk": "Potentially harmful (phishing, scams, suspicious links)",
-      "financial": "Involves money (transactions, billing, payments)",
-      "verification": "Authentication-related (OTP, account verification)",
-      "automated": "System-generated email",
-      "human": "Sent by a real person (non-automated)"
+      "requires_action": "User needs to take action (reply, pay, confirm, etc.)"
     }
   }

@@ -148,7 +148,7 @@ def main() -> int:
 
     until = datetime.now(timezone.utc)
     console.print(f"[bold]Fetching latest {args.limit} emails…[/bold]")
-    emails = list(itertools.islice(provider.fetch_emails(since=None, until=until), args.limit))
+    emails = list(itertools.islice(provider.fetch_emails(since=None, until=until, order="desc"), args.limit))
     console.print(f"Got [green]{len(emails)}[/green] emails.\n")
 
     if not emails:

@@ -7,11 +7,14 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Static
 
+import json
+
 from ...batch_processor import BatchProcessor, ProcessResult
 from ...categorizer import Categorizer
-from ...config import CATEGORIES_FILE, METADATA_FILE
+from ...config import CATEGORIES_FILE, KEYWORD_ROUTES_FILE
 from ...dropped_log import default_dropped_log
 from ...email_providers import get_email_provider
+from ...keyword_router import KeywordRouter, RouteValidationError
 from ...llm import get_llm_provider
 from ...metadata import Metadata
 
@@ -54,7 +57,7 @@ class HomeScreen(Screen):
         yield Footer()
 
     def _header_text(self) -> str:
-        meta = Metadata(METADATA_FILE)
+        meta = Metadata()
         last = meta.data.get("last_run") or {}
         provider = os.getenv("EMAIL_PROVIDER", "?")
         llm = os.getenv("LLM_PROVIDER", "?")
@@ -78,7 +81,7 @@ class HomeScreen(Screen):
             return
         log = self.query_one(RichLog)
         if event.button.id == "reset_batch":
-            Metadata(METADATA_FILE).reset_batch()
+            Metadata().reset_batch()
             log.write("[yellow]Batch progress reset.[/yellow]")
             return
         if event.button.id == "run_test":
@@ -124,12 +127,26 @@ class HomeScreen(Screen):
                 provider = get_email_provider()
                 provider.authenticate()
                 llm = get_llm_provider()
-                categorizer = Categorizer(CATEGORIES_FILE, llm)
-                meta = Metadata(METADATA_FILE)
+                with open(CATEGORIES_FILE, "r", encoding="utf-8") as fh:
+                    cats_data = json.load(fh)
+                routes_path = os.getenv("KEYWORD_ROUTES_FILE") or str(KEYWORD_ROUTES_FILE)
+                try:
+                    router = KeywordRouter(
+                        routes_path,
+                        valid_categories=list(cats_data["primary_categories"].keys()),
+                        valid_tags=list(cats_data["tags"].keys()),
+                    )
+                except RouteValidationError as exc:
+                    self.app.call_from_thread(
+                        log.write, f"[yellow]Ignoring invalid routes file:[/yellow] {exc}"
+                    )
+                    router = None
+                categorizer = Categorizer(CATEGORIES_FILE, llm, router=router)
+                meta = Metadata()
                 dropped = default_dropped_log()
                 proc = BatchProcessor(provider, categorizer, meta, dropped_log=dropped)
-                count = runner(proc, progress)
-                self.app.call_from_thread(log.write, f"[bold green]Done.[/bold green] {count} emails.")
+                results = runner(proc, progress)
+                self.app.call_from_thread(log.write, f"[bold green]Done.[/bold green] {len(results)} emails.")
                 self.app.call_from_thread(
                     self.query_one("#header_bar", Static).update, self._header_text()
                 )
