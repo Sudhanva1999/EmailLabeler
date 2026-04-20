@@ -1,5 +1,7 @@
 .env
 credentials/
+accounts.json
+logs/
 dropped_emails.jsonl
 keyword_routes.json
 email_sorter.db

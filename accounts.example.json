@@ -1,0 +1,21 @@
+{
+  "accounts": [
+    {
+      "provider": "gmail",
+      "label": "Personal Gmail",
+      "credentials_file": "credentials/gmail_credentials.json",
+      "token_file": "credentials/gmail_token_personal.json"
+    },
+    {
+      "provider": "gmail",
+      "label": "Work Gmail",
+      "credentials_file": "credentials/gmail_credentials.json",
+      "token_file": "credentials/gmail_token_work.json"
+    },
+    {
+      "provider": "outlook",
+      "label": "Outlook",
+      "token_file": "credentials/outlook_token.json"
+    }
+  ]
+}
