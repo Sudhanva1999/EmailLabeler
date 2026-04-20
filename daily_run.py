@@ -21,21 +21,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+from src.accounts import build_provider, load_accounts
 from src.batch_processor import BatchProcessor, ProcessResult
 from src.cache import Cache
 from src.categorizer import Categorizer
 from src.config import CATEGORIES_FILE, KEYWORD_ROUTES_FILE, ensure_env_file, load_env
 from src.db import Database
 from src.dropped_log import default_dropped_log
-from src.email_providers.gmail import GmailProvider
-from src.email_providers.outlook import OutlookProvider
 from src.keyword_router import KeywordRouter
 from src.llm import get_llm_provider
 from src.metadata import Metadata
 from src.notifier import NotificationPayload, get_notifier
 from src.summarizer import build_inbox_summary, build_run_summary
 
-ACCOUNTS_FILE = ROOT / "accounts.json"
 FALLBACK_WINDOW_HOURS = 25
 
 logging.basicConfig(
@@ -44,50 +42,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("daily_run")
-
-
-# ── account loading ───────────────────────────────────────────────────────────
-
-def load_accounts() -> list[dict]:
-    if ACCOUNTS_FILE.exists():
-        data = json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))
-        accounts = data.get("accounts", [])
-        if accounts:
-            return accounts
-
-    provider = os.getenv("EMAIL_PROVIDER", "gmail")
-    if provider == "gmail":
-        return [{
-            "provider": "gmail",
-            "label": os.getenv("EMAIL_ACCOUNT", "Gmail"),
-            "credentials_file": os.getenv("GMAIL_CREDENTIALS_FILE", "credentials/gmail_credentials.json"),
-            "token_file": os.getenv("GMAIL_TOKEN_FILE", "credentials/gmail_token.json"),
-        }]
-    if provider == "outlook":
-        return [{
-            "provider": "outlook",
-            "label": os.getenv("EMAIL_ACCOUNT", "Outlook"),
-            "token_file": os.getenv("OUTLOOK_TOKEN_FILE", "credentials/outlook_token.json"),
-        }]
-    return []
-
-
-# ── provider factory ──────────────────────────────────────────────────────────
-
-def build_provider(account_cfg: dict):
-    name = account_cfg["provider"]
-    if name == "gmail":
-        p = GmailProvider()
-        p._creds_file = ROOT / account_cfg.get("credentials_file", "credentials/gmail_credentials.json")
-        p._token_file = ROOT / account_cfg.get("token_file", "credentials/gmail_token.json")
-        return p
-    if name == "outlook":
-        p = OutlookProvider()
-        p._token_file = ROOT / account_cfg.get("token_file", "credentials/outlook_token.json")
-        if "client_id" in account_cfg:
-            p._client_id = account_cfg["client_id"]
-        return p
-    raise ValueError(f"Unknown provider: {name!r}")
 
 
 # ── per-account time window ───────────────────────────────────────────────────

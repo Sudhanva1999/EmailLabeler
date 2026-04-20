@@ -16,7 +16,28 @@ module.exports = {
       out_file: "logs/daily_out.log",
       error_file: "logs/daily_err.log",
       merge_logs: true,
-      time: true,         // prefix every log line with a timestamp
+      time: true,
+
+      env: {
+        PYTHONUNBUFFERED: "1",
+      },
+    },
+    {
+      name: "emailsorter-bot",
+      script: "bot_listener.py",
+      interpreter: ".venv/bin/python",
+
+      // Always-on; PM2 restarts on crash with exponential backoff.
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 5000,
+
+      out_file: "logs/bot_out.log",
+      error_file: "logs/bot_err.log",
+      merge_logs: true,
+      time: true,
 
       env: {
         PYTHONUNBUFFERED: "1",

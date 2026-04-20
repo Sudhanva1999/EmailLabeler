@@ -150,6 +150,87 @@ class Cache:
         ).fetchone()
         return row["email_date"] if row else None
 
+    def tag_counts_for(
+        self,
+        provider: str,
+        account: str,
+        since: datetime | None = None,
+    ) -> list[tuple[str, int]]:
+        """Return [(tag, count), ...] for an account, optionally since a cutoff."""
+        sql = "SELECT tags FROM processed_emails WHERE provider = ? AND account = ?"
+        args: list[Any] = [provider, account]
+        if since is not None:
+            sql += " AND classified_at >= ?"
+            args.append(since.isoformat())
+        rows = self.db.conn.execute(sql, args).fetchall()
+        counts: dict[str, int] = {}
+        for r in rows:
+            try:
+                for t in json.loads(r["tags"] or "[]"):
+                    counts[t] = counts.get(t, 0) + 1
+            except (TypeError, ValueError):
+                continue
+        return sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+
+    def category_counts_for(
+        self,
+        provider: str,
+        account: str,
+        since: datetime | None = None,
+    ) -> list[tuple[str, int]]:
+        sql = (
+            "SELECT category, COUNT(*) AS c FROM processed_emails "
+            "WHERE provider = ? AND account = ?"
+        )
+        args: list[Any] = [provider, account]
+        if since is not None:
+            sql += " AND classified_at >= ?"
+            args.append(since.isoformat())
+        sql += " GROUP BY category ORDER BY c DESC"
+        rows = self.db.conn.execute(sql, args).fetchall()
+        return [(r["category"] or "", int(r["c"])) for r in rows]
+
+    def recent_processed_for(
+        self,
+        provider: str,
+        account: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        rows = self.db.conn.execute(
+            """
+            SELECT email_id, category, tags, subject, sender, email_date, classified_at
+            FROM processed_emails
+            WHERE provider = ? AND account = ?
+            ORDER BY datetime(classified_at) DESC
+            LIMIT ?
+            """,
+            (provider, account, int(limit)),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            try:
+                tags = json.loads(r["tags"] or "[]")
+            except (TypeError, ValueError):
+                tags = []
+            out.append({
+                "email_id": r["email_id"],
+                "category": r["category"] or "",
+                "tags": tags,
+                "subject": r["subject"] or "",
+                "sender": r["sender"] or "",
+                "email_date": r["email_date"],
+                "classified_at": r["classified_at"],
+            })
+        return out
+
+    def last_run_for(self, provider: str, account: str) -> RunRecord | None:
+        row = self.db.conn.execute(
+            "SELECT * FROM runs WHERE provider = ? AND account = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (provider, account),
+        ).fetchone()
+        return self._row_to_run(row) if row else None
+
     def purge_processed_for(self, provider: str, account: str) -> int:
         cur = self.db.conn.execute(
             "DELETE FROM processed_emails WHERE provider = ? AND account = ?",
